@@ -4,19 +4,30 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+
+	"github.com/LD-RW/HTTPServer/internal/headers"
 )
 
 type parserState string
 
 const (
-	StateInit  parserState = "init"
-	StateDone  parserState = "done"
-	stateError parserState = "error"
+	StateInit    parserState = "init"
+	StateDone    parserState = "done"
+	StateHeaders parserState = "headers"
+	stateError   parserState = "error"
 )
 
 type Request struct {
 	RequestLine RequestLine
+	Headers     *headers.Headers
 	state       parserState
+}
+
+func newRequest() *Request {
+	return &Request{
+		state:   StateInit,
+		Headers: headers.NewHeaders(),
+	}
 }
 
 type RequestLine struct {
@@ -28,12 +39,6 @@ type RequestLine struct {
 func (r *RequestLine) ValidHTTP() bool {
 	return r.HttpVersion == "HTTP/1.1"
 
-}
-
-func newRequest() *Request {
-	return &Request{
-		state: StateInit,
-	}
 }
 
 var ErrorMalformedRequestLine = fmt.Errorf("Malformed HTTP Request Line")
@@ -72,11 +77,12 @@ func (r *Request) parse(data []byte) (int, error) {
 	read := 0
 outer:
 	for {
+		currentData := data[read:]
 		switch r.state {
 		case stateError:
 			return 0, ErrorRequestInErrorState
 		case StateInit:
-			rl, n, err := parseRequestLine(data[read:])
+			rl, n, err := parseRequestLine(currentData)
 			if err != nil {
 				r.state = stateError
 				return 0, err
@@ -86,9 +92,27 @@ outer:
 			}
 			r.RequestLine = *rl
 			read += n
-			r.state = StateDone
+			r.state = StateHeaders
+
+		case StateHeaders:
+			n, done, err := r.Headers.Parse(currentData)
+
+			if err != nil {
+				return 0, err
+			}
+			if n == 0 {
+				break outer
+			}
+			read += n
+
+			if done {
+				r.state = StateDone
+			}
 		case StateDone:
 			break outer
+
+		default:
+			panic("It seems I did something wrong :)")
 		}
 	}
 	return read, nil
@@ -101,19 +125,17 @@ func (r *Request) done() bool {
 func RequestFromReader(reader io.Reader) (*Request, error) {
 
 	request := newRequest()
-	// TODO : Handle buffer overflow, a header that exceeds 1k will do that, or maybe the body
-	buf := make([]byte, 1024)
+	buf := make([]byte, 4096)
 	bufLen := 0
 	for !request.done() {
 		n, err := reader.Read(buf[bufLen:])
-		// TODO : What to do with errors while reading ? should we just pass through it ? Remember EOF
 		if err != nil {
 			return nil, err
 		}
 
 		bufLen += n
 
-		readN, err := request.parse(buf[:bufLen+n])
+		readN, err := request.parse(buf[:bufLen])
 		if err != nil {
 			return nil, err
 		}
