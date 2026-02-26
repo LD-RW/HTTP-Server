@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/LD-RW/HTTPServer/internal/headers"
 )
@@ -14,6 +15,7 @@ const (
 	StateInit    parserState = "init"
 	StateDone    parserState = "done"
 	StateHeaders parserState = "headers"
+	StateBody    parserState = "body"
 	stateError   parserState = "error"
 )
 
@@ -21,19 +23,39 @@ type Request struct {
 	RequestLine RequestLine
 	Headers     *headers.Headers
 	state       parserState
+	Body        string
+}
+type RequestLine struct {
+	HttpVersion   string
+	RequestTarget string
+	Method        string
+}
+
+func (r Request) hasBody() bool {
+	// TODO :when doing chunked encoding, update this method
+	length := getInt(r.Headers, "content-length", 0)
+	return length > 0
+
+}
+
+func getInt(headers *headers.Headers, name string, defaultValue int) int {
+	valueStr, exists := headers.Get(name)
+	if !exists {
+		return defaultValue
+	}
+	value, err := strconv.Atoi(valueStr)
+	if err != nil {
+		return defaultValue
+	}
+	return value
 }
 
 func newRequest() *Request {
 	return &Request{
 		state:   StateInit,
 		Headers: headers.NewHeaders(),
+		Body:    "",
 	}
-}
-
-type RequestLine struct {
-	HttpVersion   string
-	RequestTarget string
-	Method        string
 }
 
 func (r *RequestLine) ValidHTTP() bool {
@@ -78,6 +100,9 @@ func (r *Request) parse(data []byte) (int, error) {
 outer:
 	for {
 		currentData := data[read:]
+		if len(currentData) == 0 {
+			break outer
+		}
 		switch r.state {
 		case stateError:
 			return 0, ErrorRequestInErrorState
@@ -98,6 +123,7 @@ outer:
 			n, done, err := r.Headers.Parse(currentData)
 
 			if err != nil {
+				r.state = stateError
 				return 0, err
 			}
 			if n == 0 {
@@ -106,6 +132,22 @@ outer:
 			read += n
 
 			if done {
+				if r.hasBody() {
+					r.state = StateBody
+				} else {
+					r.state = StateDone
+				}
+			}
+		case StateBody:
+			length := getInt(r.Headers, "content-length", 0)
+			// TODO
+			if length == 0 {
+				panic("Chunked not implemented")
+			}
+			remaining := min(length-len(r.Body), len(currentData))
+			r.Body += string(currentData[:remaining])
+			read += remaining
+			if len(r.Body) == length {
 				r.state = StateDone
 			}
 		case StateDone:
