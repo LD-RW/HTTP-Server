@@ -130,7 +130,10 @@ outer:
 				break outer
 			}
 			read += n
-
+			/*
+				In the real world I don't think we would get an EOF after readin data, therefore we can transition
+				nicely to the body then to statedone, I'm doing the transition in here
+			*/
 			if done {
 				if r.hasBody() {
 					r.state = StateBody
