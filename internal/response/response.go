@@ -56,6 +56,7 @@ func (w *Writer) WriteHeaders(h headers.Headers) error {
 		if err != nil {
 			return
 		}
+		// batching for performance
 		b = fmt.Appendf(b, "%s: %s\r\n", n, v)
 	})
 	b = append(b, "\r\n"...)

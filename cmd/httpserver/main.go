@@ -18,6 +18,7 @@ import (
 
 const port = 42069
 
+// a function to get the hexadecimal numbers as strings
 func toStr(bytes []byte) string {
 	out := ""
 	for _, b := range bytes {

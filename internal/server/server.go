@@ -11,7 +11,9 @@ import (
 )
 
 type Server struct {
-	closed  bool
+	// When shutdown, this will be used to stop the runServer function
+	closed bool
+	// The server uses this to know what to do once a request is successfully parsed
 	handler Handler
 }
 
@@ -20,6 +22,12 @@ type HandlerError struct {
 	Message    string
 }
 
+/*
+This allows the server package to remain "agnostic".
+It doesn't care if you are building an Amazon clone
+or a simple calculator; as long as your
+function matches this signature, the server can run it.
+*/
 type Handler func(w *response.Writer, req *request.Request)
 
 func runConnection(s *Server, conn io.ReadWriteCloser) {
@@ -47,6 +55,7 @@ func runServer(s *Server, listener net.Listener) error {
 			log.Println("Error accepting connection", err)
 			continue
 		}
+		// So you can serve multiple connections (or clients) in parallel
 		go runConnection(s, conn)
 	}
 }
